@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LifeQuest RPG</title>
+
+<link rel="manifest" href="manifest.json">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+body{font-family:Arial;background:#020617;color:white;margin:0;padding:20px}
+.container{max-width:1100px;margin:auto}
+
+h1{text-align:center;color:#38bdf8}
+
+.card{background:#0f172a;padding:20px;border-radius:14px;margin-bottom:20px;box-shadow:0 0 25px #0ea5e955}
+
+button{padding:8px 14px;border:none;border-radius:8px;background:#38bdf8;color:black;font-weight:bold;cursor:pointer}
+
+input,select{padding:8px;border-radius:6px;border:none;margin:5px}
+
+.quest{display:flex;justify-content:space-between;background:#1e293b;padding:10px;border-radius:10px;margin:6px 0}
+
+.avatar{width:80px;height:80px;border-radius:50%;border:3px solid #38bdf8}
+
+.character{display:inline-block;margin:10px;cursor:pointer}
+.character img{width:70px;border-radius:50%;border:3px solid transparent}
+.character.selected img{border:3px solid #38bdf8}
+
+.progress{height:20px;background:#1e293b;border-radius:12px;margin-top:10px;overflow:hidden}
+.bar{height:100%;background:linear-gradient(90deg,#38bdf8,#22d3ee);width:0%;border-radius:12px;transition:width 0.6s ease}
+
+.badge{display:inline-block;background:#1e293b;padding:8px 12px;border-radius:10px;margin:4px}
+
+.skill{display:inline-block;background:#1e293b;padding:10px;border-radius:10px;margin:5px}
+
+.leader{display:flex;justify-content:space-between;background:#1e293b;padding:8px;border-radius:8px;margin:4px 0}
+
+.popup{
+position:fixed;
+top:40%;
+left:50%;
+transform:translate(-50%,-50%) scale(0.7);
+background:#38bdf8;
+padding:25px 40px;
+border-radius:14px;
+font-size:26px;
+color:black;
+font-weight:bold;
+box-shadow:0 0 40px #38bdf8;
+opacity:0;
+transition:all 0.4s ease;
+}
+
+.popup.show{
+opacity:1;
+transform:translate(-50%,-50%) scale(1);
+}
+
+.skilltree{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+
+</style>
+</head>
+
+<body>
+
+<div class="popup" id="popup">LEVEL UP</div>
+
+<div class="container">
+
+<h1>⚔️ LifeQuest RPG</h1>
+
+<!-- LOGIN -->
+<div id="login" class="card">
+<h2>Login / Signup</h2>
+<input id="email" placeholder="Email">
+<input id="password" type="password" placeholder="Password">
+<button onclick="signup()">Signup</button>
+<button onclick="loginUser()">Login</button>
+</div>
+
+<!-- CHARACTER SETUP -->
+<div id="setup" class="card" style="display:none">
+<h2>Create Character</h2>
+<div id="characters"></div>
+
+<h3>Select Goal</h3>
+<select id="goal">
+<option value="fitness">Fitness</option>
+<option value="career">Career</option>
+<option value="both">Both</option>
+</select>
+
+<button onclick="createProfile()">Start Adventure</button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+
+<div class="card">
+<h2 id="welcome"></h2>
+<img id="avatar" class="avatar">
+<div>Level: <span id="level">1</span></div>
+<div>XP: <span id="xp">0</span>/100</div>
+<div class="progress"><div id="bar" class="bar"></div></div>
+</div>
+
+<div class="card">
+<h2>Your Tasks</h2>
+<div id="tasks"></div>
+<input id="taskInput" placeholder="Add task">
+<button onclick="addTask()">Add Task</button>
+</div>
+
+<div class="card">
+<h2>AI Daily Quests</h2>
+<div id="aiTasks"></div>
+<button onclick="generateAIQuests()">Generate AI Quests</button>
+</div>
+
+<div class="card">
+<h2>Weekly Boss Quest</h2>
+<div id="boss"></div>
+</div>
+
+<div class="card">
+<h2>Achievements</h2>
+<div id="badges"></div>
+</div>
+
+<div class="card">
+<h2>Skill Tree</h2>
+<div id="skillTree" class="skilltree"></div>
+</div>
+
+<div class="card">
+<h2>Leaderboard</h2>
+<div id="leaderboard"></div>
+</div>
+
+<div class="card">
+<h2>XP Progress</h2>
+<canvas id="chart"></canvas>
+</div>
+
+</div>
+</div>
+
+<script>
+
+const firebaseConfig={
+apiKey:"AIzaSyAuQZ83-QIMsZWnG_niKw0h_qwvyLRzboY",
+authDomain:"life-rpg-system-eaf3e.firebaseapp.com",
+projectId:"life-rpg-system-eaf3e",
+storageBucket:"life-rpg-system-eaf3e.firebasestorage.app",
+messagingSenderId:"383745362083",
+appId:"1:383745362083:web:4e1a555a127b2598831716"
+}
+
+firebase.initializeApp(firebaseConfig)
+
+const auth=firebase.auth()
+const db=firebase.firestore()
+
+let userData=null
+
+const avatars=[
+"https://api.dicebear.com/7.x/adventurer/svg?seed=Hero1",
+"https://api.dicebear.com/7.x/adventurer/svg?seed=Hero2",
+"https://api.dicebear.com/7.x/adventurer/svg?seed=Hero3",
+"https://api.dicebear.com/7.x/adventurer/svg?seed=Hero4"
+]
+
+let selectedAvatar=null
+
+const charBox=document.getElementById("characters")
+
+avatars.forEach(a=>{
+let div=document.createElement("div")
+div.className="character"
+div.innerHTML=`<img src="${a}">`
+div.onclick=()=>{
+selectedAvatar=a
+Array.from(document.getElementsByClassName("character")).forEach(c=>c.classList.remove("selected"))
+div.classList.add("selected")
+}
+charBox.appendChild(div)
+})
+
+function signup(){
+const email=document.getElementById("email").value
+const password=document.getElementById("password").value
+
+auth.createUserWithEmailAndPassword(email,password)
+.then(()=>{
+alert("Account created")
+document.getElementById("login").style.display="none"
+document.getElementById("setup").style.display="block"
+})
+.catch(e=>alert(e.message))
+}
+
+function loginUser(){
+const email=document.getElementById("email").value
+const password=document.getElementById("password").value
+
+auth.signInWithEmailAndPassword(email,password)
+.then(loadUser)
+.catch(e=>alert(e.message))
+}
+
+function createProfile(){
+
+const goal=document.getElementById("goal").value
+
+userData={
+level:1,
+xp:0,
+avatar:selectedAvatar,
+goal:goal,
+tasks:[],
+log:[],
+badges:[],
+skills:{fitness:0,knowledge:0,discipline:0,career:0,money:0}
+}
+
+const uid=auth.currentUser.uid
+
+db.collection("players").doc(uid).set(userData)
+.then(loadUser)
+}
+
+function loadUser(){
+
+const uid=auth.currentUser.uid
+
+db.collection("players").doc(uid).get().then(doc=>{
+
+if(!doc.exists){
+login.style.display="none"
+setup.style.display="block"
+return
+}
+
+userData=doc.data()
+
+login.style.display="none"
+setup.style.display="none"
+app.style.display="block"
+
+avatar.src=userData.avatar
+
+welcome.innerText="Welcome to LifeQuest"
+
+renderTasks()
+renderBoss()
+renderBadges()
+renderSkills()
+renderLeaderboard()
+update()
+renderChart()
+
+})
+
+}
+
+function addTask(){
+
+const t=document.getElementById("taskInput").value
+
+if(!t)return
+
+const xp=Math.floor(Math.random()*30)+10
+
+userData.tasks.push({name:t,xp})
+
+save()
+
+renderTasks()
+
+}
+
+function completeTask(xp){
+
+userData.xp+=xp
+
+if(userData.xp>=100){
+
+userData.level++
+
+userData.xp-=100
+
+showPopup("LEVEL UP")
+
+checkAchievements()
+
+}
+
+userData.skills.discipline++
+
+userData.log.push(userData.xp)
+
+save()
+
+update()
+
+renderChart()
+
+renderSkills()
+
+}
+
+function showPopup(text){
+
+const p=document.getElementById("popup")
+
+p.innerText=text
+
+p.classList.add("show")
+
+setTimeout(()=>{
+
+p.classList.remove("show")
+
+},2000)
+
+}
+
+function renderTasks(){
+
+const box=document.getElementById("tasks")
+
+box.innerHTML=""
+
+userData.tasks.forEach(t=>{
+
+let div=document.createElement("div")
+
+
+div.className="quest"
+
+
+div.innerHTML=`<div>${t.name} (+${t.xp})</div><button>Complete</button>`
+
+
+div.querySelector("button").onclick=()=>completeTask(t.xp)
+
+box.appendChild(div)
+
+})
+
+}
+
+function generateAIQuests(){
+
+let tasks=[]
+
+if(userData.goal==="fitness") tasks=["Run 1km","Drink water","Stretch 10min"]
+
+if(userData.goal==="career") tasks=["Study 30min","Learn networking","Apply job"]
+
+if(userData.goal==="both") tasks=["Workout","Study","Plan tomorrow"]
+
+const box=document.getElementById("aiTasks")
+
+box.innerHTML=""
+
+
+tasks.forEach(t=>{
+
+let div=document.createElement("div")
+
+
+div.className="quest"
+
+
+div.innerHTML=`<div>${t}</div><button>+20XP</button>`
+
+
+div.querySelector("button").onclick=()=>completeTask(20)
+
+box.appendChild(div)
+
+})
+
+}
+
+function renderBoss(){
+
+let boss="Complete 5 important tasks"
+
+if(userData.goal==="fitness") boss="Complete 5 workouts"
+
+if(userData.goal==="career") boss="Study 5 hours"
+
+const box=document.getElementById("boss")
+
+box.innerHTML=`<div class='quest'><div>${boss}</div><button>+100XP</button></div>`
+
+box.querySelector("button").onclick=()=>completeTask(100)
+
+}
+
+function renderSkills(){
+
+const box=document.getElementById("skillTree")
+
+box.innerHTML=""
+
+for(let skill in userData.skills){
+
+let div=document.createElement("div")
+
+
+div.className="skill"
+
+
+div.innerText=`${skill} Lv.${userData.skills[skill]}`
+
+box.appendChild(div)
+
+}
+
+}
+
+function checkAchievements(){
+
+if(userData.level>=5&&!userData.badges.includes("Rising Player"))
+userData.badges.push("Rising Player")
+
+if(userData.level>=10&&!userData.badges.includes("Disciplined"))
+userData.badges.push("Disciplined")
+
+if(userData.level>=20&&!userData.badges.includes("Elite"))
+userData.badges.push("Elite")
+
+renderBadges()
+
+}
+
+function renderBadges(){
+
+const box=document.getElementById("badges")
+
+box.innerHTML=""
+
+userData.badges.forEach(b=>{
+
+let div=document.createElement("div")
+
+
+div.className="badge"
+
+
+div.innerText=b
+
+box.appendChild(div)
+
+})
+
+}
+
+function renderLeaderboard(){
+
+const board=document.getElementById("leaderboard")
+
+board.innerHTML=""
+
+
+db.collection("players").orderBy("level","desc").limit(10).get().then(snapshot=>{
+
+snapshot.forEach(doc=>{
+
+let p=doc.data()
+
+let div=document.createElement("div")
+
+
+div.className="leader"
+
+
+div.innerHTML=`<span>${p.level} LVL</span><span>${p.goal}</span>`
+
+board.appendChild(div)
+
+})
+
+})
+
+}
+
+function update(){
+
+level.innerText=userData.level
+
+xp.innerText=userData.xp
+
+bar.style.width=(userData.xp/100*100)+"%"
+
+}
+
+function save(){
+
+const uid=auth.currentUser.uid
+
+
+db.collection("players").doc(uid).set(userData)
+
+}
+
+function renderChart(){
+
+const ctx=document.getElementById("chart")
+
+new Chart(ctx,{type:"line",data:{labels:userData.log.map((_,i)=>i+1),datasets:[{label:"XP Growth",data:userData.log}]}})
+
+}
+
+</script>
+
+</body>
+</html>
